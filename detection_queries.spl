@@ -1,0 +1,45 @@
+Splunk Detection Queries (SPL)
+
+1) Focus on Web Traffic
+index=main sourcetype=web_traffic
+
+2) Baseline Web Traffic Volume (Daily)
+index=main sourcetype=web_traffic | timechart span=1d count
+
+Identify Suspicious (Non-Browser) User Agents:
+
+3A) Show events with unusual user agents
+index=main sourcetype=web_traffic | search user_agent!=*Mozilla* user_agent!=*Chrome* user_agent!=*Safari* user_agent!=*Firefox*
+3B) Top suspicious IPs based on non-browser UA
+index=main sourcetype=web_traffic | search user_agent!=*Mozilla* user_agent!=*Chrome* user_agent!=*Safari* user_agent!=*Firefox* | stats count as hits by client_ip | sort -hits | head 10
+
+4) Sensitive Path Probing (Recon)
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND path IN ("/.env", "/*phpinfo*", "/.git*") | table _time, client_ip, path, user_agent, status | sort _time
+
+Path Traversal / Redirect Behavior
+5A) Show events
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND (path="*..*" OR path="*redirect*") | table _time, client_ip, path, user_agent, status | sort _time
+5B) Count top targeted paths
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND (path="*..*" OR path="*redirect*") | stats count as hits by path | sort -hits | head 20
+
+6) SQL Injection Tooling Detection (SQLMap / Havij)
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND user_agent IN ("*sqlmap*", "*Havij*") | table _time, client_ip, path, user_agent, status | sort _time
+
+7) Archive / Backup Exfil Attempt Detection
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND path IN ("*backup.zip*", "*logs.tar.gz*") | table _time, client_ip, path, user_agent, status | sort _time
+
+8) Webshell / RCE Detection (shell.php)
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND path="*shell.php?cmd=*" | table _time, client_ip, path, user_agent, status | sort _time
+
+9) Malware / Ransomware Execution Evidence (bunnylock)
+sourcetype=web_traffic client_ip="<Suspicious_IP>" AND path="*bunnylock.bin*" | table _time, client_ip, path, user_agent, status | sort _time
+
+10) Pivot to Firewall Logs: Confirm C2 Communication
+sourcetype=firewall_logs src_ip="10.10.1.5" AND dest_ip="<Attacker_IP>" AND action="ALLOWED" | table _time, action, protocol, src_ip, dest_ip, dest_port, reason | sort _time
+
+11) Quantify Data Exfiltration (Bytes Transferred)
+sourcetype=firewall_logs src_ip="10.10.1.5" AND dest_ip="<Attacker_IP>" AND action="ALLOWED" | stats sum(bytes_transferred) as total_bytes by src_ip, dest_ip
+
+12) “Single View” Timeline (Web + Firewall)
+
+(index=main sourcetype=web_traffic client_ip="<Suspicious_IP>") OR (index=main sourcetype=firewall_logs src_ip="10.10.1.5" dest_ip="<Attacker_IP>") | table _time, sourcetype, client_ip, src_ip, dest_ip, dest_port, user_agent, path, status, action, reason, bytes_transferred | sort _time
